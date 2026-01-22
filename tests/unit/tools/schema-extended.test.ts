@@ -187,7 +187,7 @@ describe('schemaListProcedures', () => {
           createdAt: '2023-06-01T10:00:00',
           modifiedAt: '2024-01-10T14:30:00',
           parameterCount: 2,
-          definition: 'CREATE PROCEDURE dbo.sp_GetUsers @status INT, @limit INT AS SELECT * FROM users WHERE status = @status',
+          definition: 'CREATE PROCEDURE public.sp_GetUsers @status INT, @limit INT AS SELECT * FROM users WHERE status = @status',
         },
         {
           schema: 'public',
@@ -196,7 +196,7 @@ describe('schemaListProcedures', () => {
           createdAt: '2023-07-15T09:00:00',
           modifiedAt: '2023-12-20T11:00:00',
           parameterCount: 3,
-          definition: 'CREATE PROCEDURE dbo.sp_UpdateOrder @orderId INT, @status VARCHAR(50), @notes TEXT AS UPDATE orders SET status = @status',
+          definition: 'CREATE PROCEDURE public.sp_UpdateOrder @orderId INT, @status VARCHAR(50), @notes TEXT AS UPDATE orders SET status = @status',
         },
       ],
       rowCount: 2,
@@ -266,11 +266,11 @@ describe('schemaListProcedures', () => {
   });
 
   it('should truncate long procedure definitions', async () => {
-    const longDefinition = 'CREATE PROCEDURE dbo.sp_LongProc AS ' + 'SELECT '.repeat(500);
+    const longDefinition = 'CREATE PROCEDURE public.sp_LongProc AS ' + 'SELECT '.repeat(500);
     vi.mocked(executeQuery).mockResolvedValue({
       rows: [
         {
-          schema: 'dbo',
+          schema: 'public',
           name: 'sp_LongProc',
           type: 'SQL_STORED_PROCEDURE',
           createdAt: '2023-06-01T10:00:00',
@@ -295,7 +295,7 @@ describe('schemaListProcedures', () => {
     vi.mocked(executeQuery).mockResolvedValue({
       rows: [
         {
-          schema: 'dbo',
+          schema: 'public',
           name: 'sp_NoDefinition',
           type: 'SQL_STORED_PROCEDURE',
           createdAt: '2023-06-01T10:00:00',

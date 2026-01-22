@@ -9,7 +9,7 @@ import { ConnectionError } from '../utils/errors.js';
 let pool: Pool | null = null;
 
 /**
- * SQL Server configuration
+ * PostgreSQL configuration
  */
 const sqlConfig: PoolConfig = {
   user: config.SQL_USER,

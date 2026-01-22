@@ -36,9 +36,12 @@ export async function monitorActiveQueries(args: unknown): Promise<ToolResponse>
 
     // Truncate long queries
     const queries = result.rows.map((row) => {
-      const queryRow = row as { fullQuery?: string };
+      const queryRow = row as { fullQuery?: string; currentStatement?: string };
       if (queryRow.fullQuery && queryRow.fullQuery.length > 2000) {
         queryRow.fullQuery = queryRow.fullQuery.substring(0, 2000) + '... [truncated]';
+      }
+      if (queryRow.currentStatement && queryRow.currentStatement.length > 1000) {
+        queryRow.currentStatement = queryRow.currentStatement.substring(0, 1000) + '... [truncated]';
       }
       return queryRow;
     });

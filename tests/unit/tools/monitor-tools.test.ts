@@ -214,19 +214,26 @@ describe('monitorBlocking', () => {
   });
 
   it('should return blocking information', async () => {
-    vi.mocked(executeQuery).mockResolvedValueOnce({
-      rows: [
-        {
-          blockedSessionId: 55,
-          blockingSessionId: 60,
-          blockedQuery: 'UPDATE users SET status = 1',
-          blockingQuery: 'SELECT * FROM users',
-        },
-      ],
-      rowCount: 1,
-      fields: [],
-      duration: 30,
-    });
+    vi.mocked(executeQuery)
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            blockedSessionId: 55,
+            blockingSessionId: 60,
+            blockedQuery: 'UPDATE users SET status = 1',
+            blockingQuery: 'SELECT * FROM users',
+          },
+        ],
+        rowCount: 1,
+        fields: [],
+        duration: 30,
+      })
+      .mockResolvedValueOnce({
+        rows: [{ sessionId: 60 }],
+        rowCount: 1,
+        fields: [],
+        duration: 20,
+      });
 
     const result = await monitorBlocking();
 
@@ -238,12 +245,19 @@ describe('monitorBlocking', () => {
   });
 
   it('should return empty blocking info when no blocking', async () => {
-    vi.mocked(executeQuery).mockResolvedValueOnce({
-      rows: [],
-      rowCount: 0,
-      fields: [],
-      duration: 20,
-    });
+    vi.mocked(executeQuery)
+      .mockResolvedValueOnce({
+        rows: [],
+        rowCount: 0,
+        fields: [],
+        duration: 20,
+      })
+      .mockResolvedValueOnce({
+        rows: [],
+        rowCount: 0,
+        fields: [],
+        duration: 10,
+      });
 
     const result = await monitorBlocking();
 
@@ -298,7 +312,14 @@ describe('monitorBlocking', () => {
   });
 
   it('should handle database errors', async () => {
-    vi.mocked(executeQuery).mockRejectedValue(new Error('Query failed'));
+    vi.mocked(executeQuery)
+      .mockRejectedValueOnce(new Error('Query failed'))
+      .mockResolvedValueOnce({
+        rows: [],
+        rowCount: 0,
+        fields: [],
+        duration: 10,
+      });
 
     const result = await monitorBlocking();
 
@@ -319,7 +340,7 @@ describe('monitorBlockingDefinition', () => {
 
 describe('monitorConnections', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.mocked(executeQuery).mockReset();
   });
 
   it('should return connection information', async () => {
@@ -394,19 +415,19 @@ describe('monitorDatabaseSize', () => {
   it('should return database size information', async () => {
     vi.mocked(executeQuery)
       .mockResolvedValueOnce({
-        rows: [{ database: 'testdb', dataSizeMB: 100, logSizeMB: 50, totalSizeMB: 150 }],
+        rows: [{ database: 'testdb', totalSizeMB: 150 }],
         rowCount: 1,
         fields: [],
         duration: 20,
       })
       .mockResolvedValueOnce({
-        rows: [{ fileName: 'testdb', fileType: 'ROWS', sizeMB: 100, usedMB: 80 }],
+        rows: [{ fileName: 'testdb', physicalPath: '/data', sizeMB: 100 }],
         rowCount: 1,
         fields: [],
         duration: 15,
       })
       .mockResolvedValueOnce({
-        rows: [{ schema: 'dbo', table: 'users', rowCount: 10000, totalSizeMB: 50 }],
+        rows: [{ schema: 'public', table: 'users', rowCount: 10000, totalSizeMB: 50 }],
         rowCount: 1,
         fields: [],
         duration: 25,

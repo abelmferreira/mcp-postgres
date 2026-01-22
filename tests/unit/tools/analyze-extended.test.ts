@@ -20,8 +20,8 @@ describe('analyzeFragmentation', () => {
   it('should return fragmentation analysis', async () => {
     vi.mocked(executeQuery).mockResolvedValue({
       rows: [
-        { schema: 'dbo', table: 'users', indexName: 'IX_Users_Email', fragmentationPercent: 35, recommendation: 'REBUILD recommended' },
-        { schema: 'dbo', table: 'orders', indexName: 'IX_Orders_Date', fragmentationPercent: 15, recommendation: 'REORGANIZE recommended' },
+        { schema: 'public', table: 'users', indexName: 'IX_Users_Email', fragmentationPercent: 35, recommendation: 'REBUILD recommended' },
+        { schema: 'public', table: 'orders', indexName: 'IX_Orders_Date', fragmentationPercent: 15, recommendation: 'REORGANIZE recommended' },
       ],
       rowCount: 2,
       fields: [],

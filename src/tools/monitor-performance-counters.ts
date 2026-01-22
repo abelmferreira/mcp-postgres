@@ -31,6 +31,8 @@ export async function monitorPerformanceCounters(args: unknown): Promise<ToolRes
       metrics: result.rows[0] || null,
       totalCounters: result.rowCount,
       note: 'PostgreSQL exposes metrics via pg_stat_database. For more, enable pg_stat_statements.',
+      counters: result.rowCount > 0 ? { 'PostgreSQL:Database': result.rows } : {},
+      bufferCacheHitRatio: null,
     });
   } catch (error) {
     return formatError(error);

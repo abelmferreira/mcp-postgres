@@ -191,7 +191,7 @@ export function createServer(): McpServer {
   // Monitor Performance Counters Tool
   server.tool(
     'monitor_performance_counters',
-    'Monitor SQL Server performance counters.',
+    'Monitor PostgreSQL performance metrics.',
     {
       category: z.enum(['buffer', 'sql', 'locks', 'memory', 'all']).optional().describe('Counter category'),
     },

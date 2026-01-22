@@ -111,7 +111,7 @@ export async function executeQuery(
       query: query.substring(0, 200),
     });
 
-    // Handle specific SQL Server errors
+    // Handle specific database errors
     if (message.includes('timeout') || message.includes('Timeout')) {
       throw new TimeoutError(duration);
     }

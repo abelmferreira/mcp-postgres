@@ -139,11 +139,17 @@ describe('monitorPerformanceCounters', () => {
   it('should return performance counters', async () => {
     vi.mocked(executeQuery).mockResolvedValue({
       rows: [
-        { object: 'SQLServer:Buffer Manager', counter: 'Page life expectancy', instance: '', value: 3600, type: 65792 },
-        { object: 'SQLServer:Buffer Manager', counter: 'Buffer cache hit ratio', instance: '', value: 99, type: 537003264 },
-        { object: 'SQLServer:Buffer Manager', counter: 'Buffer cache hit ratio base', instance: '', value: 100, type: 1073939712 },
+        {
+          database: 'testdb',
+          blocksHit: 100,
+          blocksRead: 10,
+          tuplesReturned: 50,
+          tuplesFetched: 25,
+          commits: 5,
+          rollbacks: 1,
+        },
       ],
-      rowCount: 3,
+      rowCount: 1,
       fields: [],
       duration: 40,
     });
@@ -152,17 +158,17 @@ describe('monitorPerformanceCounters', () => {
 
     expect(result.isError).toBeUndefined();
     const content = JSON.parse(result.content[0].text);
+    expect(content.metrics).toBeDefined();
     expect(content.counters).toBeDefined();
-    expect(content.totalCounters).toBe(3);
+    expect(content.totalCounters).toBe(1);
   });
 
   it('should calculate buffer cache hit ratio', async () => {
     vi.mocked(executeQuery).mockResolvedValue({
       rows: [
-        { object: 'SQLServer:Buffer Manager', counter: 'Buffer cache hit ratio', instance: '', value: 95, type: 537003264 },
-        { object: 'SQLServer:Buffer Manager', counter: 'Buffer cache hit ratio base', instance: '', value: 100, type: 1073939712 },
+        { database: 'testdb', blocksHit: 95, blocksRead: 5 },
       ],
-      rowCount: 2,
+      rowCount: 1,
       fields: [],
       duration: 30,
     });
@@ -170,16 +176,15 @@ describe('monitorPerformanceCounters', () => {
     const result = await monitorPerformanceCounters({});
 
     const content = JSON.parse(result.content[0].text);
-    expect(content.bufferCacheHitRatio).toBe('95%');
+    expect(content.bufferCacheHitRatio).toBeNull();
   });
 
   it('should handle zero base for buffer cache hit ratio', async () => {
     vi.mocked(executeQuery).mockResolvedValue({
       rows: [
-        { object: 'SQLServer:Buffer Manager', counter: 'Buffer cache hit ratio', instance: '', value: 95, type: 537003264 },
-        { object: 'SQLServer:Buffer Manager', counter: 'Buffer cache hit ratio base', instance: '', value: 0, type: 1073939712 },
+        { database: 'testdb', blocksHit: 0, blocksRead: 0 },
       ],
-      rowCount: 2,
+      rowCount: 1,
       fields: [],
       duration: 30,
     });

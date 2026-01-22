@@ -55,13 +55,27 @@ export async function monitorBlocking(): Promise<ToolResponse> {
       return info;
     });
 
-    const headBlockers = Array.from(
-      new Set(
-        blockingInfo
-          .map((row) => row.blockingSessionId)
-          .filter((id): id is number => typeof id === 'number')
-      )
-    );
+    const headBlockersQuery = `
+      SELECT DISTINCT bl.pid AS "sessionId"
+      FROM pg_locks w
+      JOIN pg_locks bl ON bl.locktype = w.locktype
+        AND bl.database IS NOT DISTINCT FROM w.database
+        AND bl.relation IS NOT DISTINCT FROM w.relation
+        AND bl.page IS NOT DISTINCT FROM w.page
+        AND bl.tuple IS NOT DISTINCT FROM w.tuple
+        AND bl.virtualxid IS NOT DISTINCT FROM w.virtualxid
+        AND bl.transactionid IS NOT DISTINCT FROM w.transactionid
+        AND bl.classid IS NOT DISTINCT FROM w.classid
+        AND bl.objid IS NOT DISTINCT FROM w.objid
+        AND bl.objsubid IS NOT DISTINCT FROM w.objsubid
+        AND bl.pid <> w.pid
+        AND bl.granted
+      WHERE NOT w.granted
+        AND bl.pid NOT IN (SELECT pid FROM pg_locks WHERE NOT granted)
+    `;
+
+    const headBlockersResult = await executeQuery(headBlockersQuery, {}, 100);
+    const headBlockers = headBlockersResult.rows.map((row) => (row as { sessionId: number }).sessionId);
 
     return formatSuccess({
       blocking: blockingInfo,

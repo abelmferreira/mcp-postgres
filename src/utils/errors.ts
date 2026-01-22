@@ -1,5 +1,5 @@
 /**
- * Base error class for MCP SQL Server
+ * Base error class for MCP PostgreSQL
  */
 export class McpError extends Error {
   public readonly code: string;

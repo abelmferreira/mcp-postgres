@@ -1,13 +1,13 @@
-# MCP SQL Server
+# MCP PostgreSQL
 
-[![npm version](https://img.shields.io/npm/v/%40fabriciofs%2Fmcp-sql-server?cacheSeconds=300)](https://www.npmjs.com/package/@fabriciofs/mcp-sql-server)
-[![Build Status](https://github.com/fabriciofs/mcp-sql-server/actions/workflows/test.yml/badge.svg)](https://github.com/fabriciofs/mcp-sql-server/actions/workflows/test.yml)
-[![codecov](https://codecov.io/gh/fabriciofs/mcp-sql-server/branch/main/graph/badge.svg)](https://codecov.io/gh/fabriciofs/mcp-sql-server)
+[![npm version](https://img.shields.io/npm/v/%40fabriciofs%2Fmcp-postgres?cacheSeconds=300)](https://www.npmjs.com/package/@fabriciofs/mcp-postgres)
+[![Build Status](https://github.com/fabriciofs/mcp-postgres/actions/workflows/test.yml/badge.svg)](https://github.com/fabriciofs/mcp-postgres/actions/workflows/test.yml)
+[![codecov](https://codecov.io/gh/fabriciofs/mcp-postgres/branch/main/graph/badge.svg)](https://codecov.io/gh/fabriciofs/mcp-postgres)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-green.svg)](https://nodejs.org/)
 
-A Model Context Protocol (MCP) server for SQL Server integration with Claude Code. Query, monitor, and analyze your SQL Server databases directly from Claude.
+A Model Context Protocol (MCP) server for PostgreSQL integration with Claude Code. Query, monitor, and analyze your PostgreSQL databases directly from Claude.
 
 ## Features
 
@@ -22,20 +22,20 @@ A Model Context Protocol (MCP) server for SQL Server integration with Claude Cod
 ### Option 1: From npm (recommended)
 
 ```bash
-npx @fabriciofs/mcp-sql-server
+npx @fabriciofs/mcp-postgres
 ```
 
 ### Option 2: Global installation
 
 ```bash
-npm install -g @fabriciofs/mcp-sql-server
+npm install -g @fabriciofs/mcp-postgres
 ```
 
 ### Option 3: Clone and build locally
 
 ```bash
-git clone https://github.com/fabriciofs/mcp-sql-server.git
-cd mcp-sql-server
+git clone https://github.com/fabriciofs/mcp-postgres.git
+cd mcp-postgres
 npm install
 npm run build
 ```
@@ -49,11 +49,11 @@ Add to your Claude Code MCP settings (`~/.claude/settings.json` or project `.cla
 ```json
 {
   "mcpServers": {
-    "sqlserver": {
+    "postgres": {
       "command": "npx",
-      "args": ["-y", "@fabriciofs/mcp-sql-server"],
+      "args": ["-y", "@fabriciofs/mcp-postgres"],
       "env": {
-        "SQL_CONNECTION_URL": "sqlserver://user:password@localhost:1433/database",
+        "SQL_CONNECTION_URL": "postgres://user:password@localhost:5432/database",
         "READONLY": "true"
       }
     }
@@ -66,16 +66,16 @@ Or with individual connection parameters:
 ```json
 {
   "mcpServers": {
-    "sqlserver": {
+    "postgres": {
       "command": "npx",
-      "args": ["-y", "@fabriciofs/mcp-sql-server"],
+      "args": ["-y", "@fabriciofs/mcp-postgres"],
       "env": {
         "SQL_SERVER": "localhost",
         "SQL_DATABASE": "mydb",
-        "SQL_USER": "sa",
+        "SQL_USER": "postgres",
         "SQL_PASSWORD": "yourpassword",
-        "SQL_PORT": "1433",
-        "SQL_TRUST_CERT": "true",
+        "SQL_PORT": "5432",
+        "SQL_SSL": "false",
         "READONLY": "true"
       }
     }
@@ -89,18 +89,17 @@ Or with individual connection parameters:
 
 **Method 1: Connection URL**
 ```bash
-SQL_CONNECTION_URL=sqlserver://user:password@host:port/database?TrustServerCertificate=true
+SQL_CONNECTION_URL=postgres://user:password@host:port/database?ssl=false
 ```
 
 **Method 2: Individual Parameters**
 ```bash
 SQL_SERVER=localhost
 SQL_DATABASE=mydb
-SQL_USER=sa
+SQL_USER=postgres
 SQL_PASSWORD=yourpassword
-SQL_PORT=1433              # Optional, default: 1433
-SQL_ENCRYPT=true           # Optional, default: true
-SQL_TRUST_CERT=false       # Optional, default: false
+SQL_PORT=5432              # Optional, default: 5432
+SQL_SSL=false              # Optional, default: false
 ```
 
 #### Required Settings
@@ -146,7 +145,7 @@ SQL_TRUST_CERT=false       # Optional, default: false
 | `monitor_wait_stats` | Monitor wait statistics for performance bottlenecks |
 | `monitor_database_size` | Monitor database size and file usage |
 | `monitor_connections` | Monitor active connections |
-| `monitor_performance_counters` | Monitor SQL Server performance counters |
+| `monitor_performance_counters` | Monitor PostgreSQL performance metrics |
 
 ### Analysis Tools
 
@@ -184,14 +183,14 @@ Once configured, you can ask Claude to interact with your database:
 
 - **Always use READONLY=true in production** unless write access is explicitly required
 - Store credentials securely using environment variables
-- Use SQL Server accounts with minimal required permissions
+- Use PostgreSQL roles with minimal required permissions
 - Consider network security (VPN, firewall rules) for remote connections
 
 ## Requirements
 
 - Node.js >= 20.0.0
-- SQL Server 2016 or later
-- Appropriate SQL Server permissions for the operations you want to perform
+- PostgreSQL 12 or later
+- Appropriate PostgreSQL permissions for the operations you want to perform
 
 ## Development
 
