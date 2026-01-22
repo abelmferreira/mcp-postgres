@@ -1,0 +1,64 @@
+{
+  "name": "@fabriciofs/mcp-postgres",
+  "version": "1.0.0",
+  "description": "MCP Server for PostgreSQL integration with Claude Code - Query, Monitor, and Analyze",
+  "type": "module",
+  "main": "build/index.js",
+  "bin": {
+    "mcp-postgres": "./build/index.js"
+  },
+  "files": [
+    "build",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepare": "npm run build",
+    "start": "node --env-file=.env build/index.js",
+    "start:prod": "node build/index.js",
+    "dev": "tsc --watch",
+    "clean": "rm -rf build",
+    "rebuild": "npm run clean && npm run build",
+    "inspector": "npx @modelcontextprotocol/inspector",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:ui": "vitest --ui"
+  },
+  "keywords": [
+    "mcp",
+    "postgres",
+    "postgresql",
+    "claude",
+    "anthropic",
+    "database",
+    "model-context-protocol"
+  ],
+  "author": "fabriciofs",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fabriciofs/mcp-postgres.git"
+  },
+  "bugs": {
+    "url": "https://github.com/fabriciofs/mcp-postgres/issues"
+  },
+  "homepage": "https://github.com/fabriciofs/mcp-postgres#readme",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.1",
+    "pg": "^8.15.0",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.10.2",
+    "@types/node": "^25.0.2",
+    "@vitest/coverage-v8": "^2.1.8",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.8"
+  }
+}
