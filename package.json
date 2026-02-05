@@ -1,6 +1,6 @@
 {
   "name": "@fabriciofs/mcp-postgres",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "MCP Server for PostgreSQL integration with Claude Code - Query, Monitor, and Analyze",
   "type": "module",
   "main": "build/index.js",
