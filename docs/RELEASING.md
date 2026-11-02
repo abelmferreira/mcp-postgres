@@ -5,7 +5,7 @@ Two artifacts come from the same git tag `vX.Y.Z`:
 | Artifact | Where | Workflow |
 |---|---|---|
 | npm package | `@abelmferreira/mcp-postgres` | `.github/workflows/publish-npm.yml` (Trusted Publishing / OIDC, no token) |
-| Docker image | `abelmferreira/mcp-postgres` on Docker Hub (amd64 + arm64) | `.github/workflows/publish-docker.yml` (secrets `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`) |
+| Docker image | `abelmferreira/mcp-postgres` on Docker Hub (amd64 + arm64) | `.github/workflows/publish-docker.yml` (variable `DOCKERHUB_USERNAME`, secret `DOCKERHUB_TOKEN`) |
 
 Cut a release from a green `main`: bump the version in `package.json`, `package-lock.json` and
 `CHANGELOG.md`, commit, then `git tag vX.Y.Z && git push origin vX.Y.Z`. Both workflows check that
