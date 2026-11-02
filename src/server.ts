@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
@@ -28,13 +29,19 @@ import { sqlInsert } from './tools/sql-insert.js';
 import { sqlUpdate } from './tools/sql-update.js';
 import { sqlDelete } from './tools/sql-delete.js';
 
+// Reported in the MCP handshake. package.json sits next to build/ both in the
+// npm package and in the Docker image.
+const SERVER_VERSION: string = (
+  createRequire(import.meta.url)('../package.json') as { version: string }
+).version;
+
 /**
  * Create and configure the MCP server
  */
 export function createServer(): McpServer {
   const server = new McpServer({
     name: 'mcp-postgres',
-    version: '1.0.0',
+    version: SERVER_VERSION,
   });
 
   logger.info('Registering tools', { readonly: config.READONLY });
@@ -373,7 +380,10 @@ export async function runServer(): Promise<void> {
   const transport = new StdioServerTransport();
 
   // Handle shutdown
+  let shuttingDown = false;
   const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     logger.info('Shutting down...');
     await closePool();
     process.exit(0);
@@ -381,6 +391,9 @@ export async function runServer(): Promise<void> {
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+  // The client closing stdin also ends the session. Without this the open
+  // pool (and SSH tunnel) would keep the process, or its container, alive.
+  process.stdin.on('end', shutdown);
 
   // Connect server to transport
   await server.connect(transport);
