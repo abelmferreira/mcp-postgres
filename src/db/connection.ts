@@ -9,9 +9,39 @@ import { ConnectionError } from '../utils/errors.js';
 let pool: Pool | null = null;
 
 /**
+ * Session-level read-only protection for READONLY mode.
+ *
+ * Sent as a startup parameter (`options: -c ...`) instead of running
+ * `SET default_transaction_read_only = on` from a pool 'connect' handler:
+ * - the server applies it while opening the session, before any query, so
+ *   there is no window where a fresh connection is read-write;
+ * - it covers every query that uses the pool, including the ones that do not
+ *   go through executeQuery();
+ * - a failure to apply it fails the connection instead of being silently
+ *   lost in an async event handler.
+ * Caveat: PgBouncer in transaction/statement mode rejects the `options`
+ * startup parameter unless it is listed in `ignore_startup_parameters` (and
+ * then it is ignored). The per-query `BEGIN READ ONLY` in execute.ts does
+ * not depend on it, so the protection still holds behind a pooler.
+ *
+ * The session default alone is NOT enough: `SET transaction_read_only = off`
+ * is accepted before the first snapshot of a transaction. That is why
+ * execute.ts also opens an explicit READ ONLY transaction and takes a
+ * snapshot before running the user query.
+ */
+export const READONLY_SESSION_OPTIONS = '-c default_transaction_read_only=on';
+
+/**
+ * Kills sessions left idle inside an open transaction (e.g. a hung client
+ * holding a READ ONLY transaction and its snapshot). Our transactions only
+ * wrap a single statement, so the query timeout plus a margin is plenty.
+ */
+const IDLE_IN_TRANSACTION_MARGIN_MS = 5000;
+
+/**
  * PostgreSQL configuration
  */
-const sqlConfig: PoolConfig = {
+export const sqlConfig: PoolConfig = {
   user: config.SQL_USER,
   password: config.SQL_PASSWORD,
   host: config.SQL_SERVER,
@@ -22,6 +52,8 @@ const sqlConfig: PoolConfig = {
   max: config.POOL_MAX,
   idleTimeoutMillis: 30000,
   statement_timeout: config.QUERY_TIMEOUT,
+  idle_in_transaction_session_timeout: config.QUERY_TIMEOUT + IDLE_IN_TRANSACTION_MARGIN_MS,
+  ...(config.READONLY ? { options: READONLY_SESSION_OPTIONS } : {}),
 };
 
 /**
@@ -37,6 +69,7 @@ export async function getPool(): Promise<Pool> {
       server: config.SQL_SERVER,
       database: config.SQL_DATABASE,
       port: config.SQL_PORT,
+      readonly: config.READONLY,
     });
 
     pool = new Pool(sqlConfig);
