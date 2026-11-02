@@ -1,4 +1,6 @@
+import { accessSync, constants as fsConstants } from 'node:fs';
 import { z } from 'zod';
+import { EnvFileError, loadEnvFileFromEnv, resolveUserPath } from './env-file.js';
 
 /**
  * Parsed connection URL components
@@ -27,7 +29,8 @@ function parseConnectionUrl(url: string): ParsedConnectionUrl {
   try {
     parsed = new URL(normalizedUrl);
   } catch {
-    throw new Error(`Invalid connection URL format: ${url}`);
+    // Do not echo the URL: it contains the password
+    throw new Error('Invalid connection URL format');
   }
 
   const server = parsed.hostname;
@@ -83,7 +86,7 @@ function parseConnectionUrl(url: string): ParsedConnectionUrl {
  * 2. Individual parameters: Set SQL_SERVER, SQL_DATABASE, SQL_USER, SQL_PASSWORD
  */
 const envSchema = z.object({
-   // PostgreSQL Connection URL (Optional - alternative to individual params)
+  // PostgreSQL Connection URL (Optional - alternative to individual params)
   SQL_CONNECTION_URL: z.string().optional(),
 
   // PostgreSQL Connection (Required if URL not provided)
@@ -106,7 +109,7 @@ const envSchema = z.object({
 
   // Operation Mode (REQUIRED)
   READONLY: z
-    .string()
+    .string({ error: 'READONLY is required: "true" (read-only, recommended) or "false" (full access).' })
     .min(1, 'READONLY environment variable is required. Set to "true" for read-only mode or "false" for full access.')
     .refine((val) => val === 'true' || val === 'false', {
       message: 'READONLY must be "true" or "false"',
@@ -140,7 +143,86 @@ const envSchema = z.object({
 
   // Logging (Optional)
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+
+  // SSH tunnel (Optional). Enabled when SSH_HOST is set; SQL_SERVER:SQL_PORT is then
+  // the database address as seen from the SSH host.
+  SSH_HOST: z.string().optional(),
+  SSH_PORT: z
+    .string()
+    .default('22')
+    .transform((val) => parseInt(val, 10))
+    .pipe(z.number().int().positive().max(65535)),
+  SSH_USER: z.string().optional(),
+  SSH_KEY_PATH: z.string().optional(),
+  SSH_KEY_PASSPHRASE: z.string().optional(),
+  SSH_HOST_FINGERPRINT: z.string().optional(),
 });
+
+
+/**
+ * Configuration problem. `details` are printed one per line on stderr; they
+ * never contain secret values.
+ */
+export class ConfigError extends Error {
+  constructor(public readonly details: string[]) {
+    super(details.join('\n'));
+    this.name = 'ConfigError';
+  }
+}
+
+/**
+ * SSH tunnel settings (null when the tunnel is disabled)
+ */
+export interface SshConfig {
+  host: string;
+  port: number;
+  user: string;
+  /** Absolute path of the private key (`~` and relative paths already resolved) */
+  keyPath: string;
+  keyPassphrase?: string;
+  hostFingerprint: string;
+}
+
+/**
+ * Resolve the SSH tunnel settings, throwing a ConfigError when incomplete
+ */
+function resolveSsh(env: z.infer<typeof envSchema>): SshConfig | null {
+  if (!env.SSH_HOST) {
+    return null;
+  }
+
+  const missing: string[] = [];
+  if (!env.SSH_USER) missing.push('SSH_USER');
+  if (!env.SSH_KEY_PATH) missing.push('SSH_KEY_PATH');
+  if (!env.SSH_HOST_FINGERPRINT) missing.push('SSH_HOST_FINGERPRINT');
+
+  if (missing.length > 0) {
+    throw new ConfigError([
+      '  SSH_HOST is set but these are missing:',
+      ...missing.map((param) => `    - ${param}`),
+      '  SSH_HOST_FINGERPRINT is mandatory (e.g. SHA256:xxxx, see ssh-keygen -lf).',
+    ]);
+  }
+
+  // `~` is expanded and relative paths are resolved against the working
+  // directory, which is whatever the MCP client uses: prefer absolute paths.
+  const keyPath = resolveUserPath(env.SSH_KEY_PATH!);
+  try {
+    accessSync(keyPath, fsConstants.R_OK);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code ?? 'unknown error';
+    throw new ConfigError([`  - SSH_KEY_PATH: private key "${keyPath}" is not readable (${code}).`]);
+  }
+
+  return {
+    host: env.SSH_HOST,
+    port: env.SSH_PORT,
+    user: env.SSH_USER!,
+    keyPath,
+    keyPassphrase: env.SSH_KEY_PASSPHRASE || undefined,
+    hostFingerprint: env.SSH_HOST_FINGERPRINT!,
+  };
+}
 
 /**
  * Final validated configuration type with resolved connection details
@@ -158,55 +240,58 @@ export interface Config {
   POOL_MIN: number;
   POOL_MAX: number;
   LOG_LEVEL: 'debug' | 'info' | 'warn' | 'error';
+  SSH: SshConfig | null;
 }
 
 /**
- * Load and validate configuration from environment variables
- * Supports both connection URL and individual parameters
+ * Validate a set of environment variables and build the configuration.
+ * Supports both connection URL and individual parameters.
+ *
+ * @throws ConfigError with human readable details
  */
-function loadConfig(): Config {
-  const result = envSchema.safeParse(process.env);
+export function parseConfig(source: NodeJS.ProcessEnv): Config {
+  const result = envSchema.safeParse(source);
 
   if (!result.success) {
-    console.error('[MCP] Configuration error:');
-    for (const issue of result.error.issues) {
-      console.error(`  - ${issue.path.join('.')}: ${issue.message}`);
-    }
-    console.error('');
-    console.error('[MCP] Please check your environment variables or .env file.');
-    console.error('[MCP] See .env.example for required configuration.');
-    process.exit(1);
+    throw new ConfigError(result.error.issues.map((issue) => `  - ${issue.path.join('.')}: ${issue.message}`));
   }
 
   const env = result.data;
 
+  const common = {
+    READONLY: env.READONLY,
+    QUERY_TIMEOUT: env.QUERY_TIMEOUT,
+    MAX_ROWS: env.MAX_ROWS,
+    POOL_MIN: env.POOL_MIN,
+    POOL_MAX: env.POOL_MAX,
+    LOG_LEVEL: env.LOG_LEVEL,
+  };
+
   // Check if connection URL is provided
   if (env.SQL_CONNECTION_URL) {
+    let parsed: ParsedConnectionUrl;
     try {
-      const parsed = parseConnectionUrl(env.SQL_CONNECTION_URL);
-      return {
-        SQL_SERVER: parsed.server,
-        SQL_DATABASE: parsed.database,
-        SQL_USER: parsed.user,
-        SQL_PASSWORD: parsed.password,
-        SQL_PORT: parsed.port,
-        SQL_SSL: parsed.ssl,
-        READONLY: env.READONLY,
-        QUERY_TIMEOUT: env.QUERY_TIMEOUT,
-        MAX_ROWS: env.MAX_ROWS,
-        POOL_MIN: env.POOL_MIN,
-        POOL_MAX: env.POOL_MAX,
-        LOG_LEVEL: env.LOG_LEVEL,
-      };
+      parsed = parseConnectionUrl(env.SQL_CONNECTION_URL);
     } catch (error) {
+      // Never echo the URL itself: it carries the password
       const message = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[MCP] Configuration error:');
-      console.error(`  - SQL_CONNECTION_URL: ${message}`);
-      console.error('');
-      console.error('[MCP] Connection URL format:');
-      console.error('  postgres://user:password@host:port/database?ssl=true');
-      process.exit(1);
+      throw new ConfigError([
+        `  - SQL_CONNECTION_URL: ${message}`,
+        '',
+        'Connection URL format:',
+        '  postgres://user:password@host:port/database?ssl=true',
+      ]);
     }
+    return {
+      SQL_SERVER: parsed.server,
+      SQL_DATABASE: parsed.database,
+      SQL_USER: parsed.user,
+      SQL_PASSWORD: parsed.password,
+      SQL_PORT: parsed.port,
+      SQL_SSL: parsed.ssl,
+      ...common,
+      SSH: resolveSsh(env),
+    };
   }
 
   // Validate individual parameters are provided
@@ -217,22 +302,18 @@ function loadConfig(): Config {
   if (!env.SQL_PASSWORD) missingParams.push('SQL_PASSWORD');
 
   if (missingParams.length > 0) {
-    console.error('[MCP] Configuration error:');
-    console.error('  Either SQL_CONNECTION_URL or individual connection parameters are required.');
-    console.error('');
-    console.error('  Missing parameters:');
-    for (const param of missingParams) {
-      console.error(`    - ${param}`);
-    }
-    console.error('');
-    console.error('[MCP] Option 1 - Use connection URL:');
-    console.error('  SQL_CONNECTION_URL=postgres://user:password@host:port/database');
-    console.error('');
-    console.error('[MCP] Option 2 - Use individual parameters:');
-    console.error('  SQL_SERVER, SQL_DATABASE, SQL_USER, SQL_PASSWORD');
-    console.error('');
-    console.error('[MCP] See .env.example for complete configuration options.');
-    process.exit(1);
+    throw new ConfigError([
+      '  Either SQL_CONNECTION_URL or individual connection parameters are required.',
+      '',
+      '  Missing parameters:',
+      ...missingParams.map((param) => `    - ${param}`),
+      '',
+      'Option 1 - Use connection URL:',
+      '  SQL_CONNECTION_URL=postgres://user:password@host:port/database',
+      '',
+      'Option 2 - Use individual parameters:',
+      '  SQL_SERVER, SQL_DATABASE, SQL_USER, SQL_PASSWORD',
+    ]);
   }
 
   return {
@@ -242,13 +323,34 @@ function loadConfig(): Config {
     SQL_PASSWORD: env.SQL_PASSWORD!,
     SQL_PORT: env.SQL_PORT,
     SQL_SSL: env.SQL_SSL,
-    READONLY: env.READONLY,
-    QUERY_TIMEOUT: env.QUERY_TIMEOUT,
-    MAX_ROWS: env.MAX_ROWS,
-    POOL_MIN: env.POOL_MIN,
-    POOL_MAX: env.POOL_MAX,
-    LOG_LEVEL: env.LOG_LEVEL,
+    ...common,
+    SSH: resolveSsh(env),
   };
+}
+
+/**
+ * Load ENV_FILE (if any) into process.env, then validate the configuration.
+ * On error prints a clear message to stderr (stdout belongs to the MCP
+ * protocol) and exits with status 1.
+ */
+function loadConfig(): Config {
+  try {
+    loadEnvFileFromEnv(process.env);
+    return parseConfig(process.env);
+  } catch (error) {
+    console.error('[MCP] Configuration error:');
+    if (error instanceof ConfigError) {
+      for (const line of error.details) console.error(line);
+    } else if (error instanceof EnvFileError) {
+      console.error(`  - ${error.message}`);
+    } else {
+      console.error(`  - ${error instanceof Error ? error.message : String(error)}`);
+    }
+    console.error('');
+    console.error('[MCP] Check the "env" block of your MCP client config, ENV_FILE or .env.');
+    console.error('[MCP] See .env.example / README for the full list of variables.');
+    process.exit(1);
+  }
 }
 
 /**

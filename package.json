@@ -47,18 +47,20 @@
   },
   "homepage": "https://github.com/fabriciofs/mcp-postgres#readme",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.12.0"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.1",
     "pg": "^8.15.0",
     "pg-cursor": "^2.22.1",
+    "ssh2": "^1.17.0",
     "zod": "^4.2.1"
   },
   "devDependencies": {
     "@types/node": "^25.0.2",
     "@types/pg": "^8.10.2",
     "@types/pg-cursor": "^2.7.2",
+    "@types/ssh2": "^1.15.6",
     "@vitest/coverage-v8": "^2.1.8",
     "typescript": "^5.9.3",
     "vitest": "^2.1.8"
