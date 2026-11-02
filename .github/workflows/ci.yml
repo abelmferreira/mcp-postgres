@@ -1,0 +1,135 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          # Bootstrap value only: replaced by a random password in the first
+          # step, before anything else can connect.
+          POSTGRES_PASSWORD: bootstrap-${{ github.run_id }}-${{ github.run_attempt }}
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U postgres -h 127.0.0.1"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - name: Set a random password for the test database
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+          PG_PORT: ${{ job.services.postgres.ports['5432'] }}
+        run: |
+          pass="$(openssl rand -hex 24)"
+          echo "::add-mask::$pass"
+          docker exec -i "$PG_CONTAINER" psql -v ON_ERROR_STOP=1 -U postgres -q \
+            -c "ALTER USER postgres PASSWORD '$pass'"
+          echo "TEST_PG_URL=postgres://postgres:${pass}@127.0.0.1:${PG_PORT}/postgres" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # `npm ci` also runs "prepare" (tsc build).
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Unit tests plus the real-PostgreSQL tests (enabled by TEST_PG_URL).
+      # The SSH tunnel end-to-end test needs sshd containers and runs only
+      # through scripts/e2e-ssh-tunnel.sh.
+      - name: Tests
+        run: npm test
+
+      - name: Check CLI entry point
+        run: |
+          head -n1 build/index.js | grep -q '^#!/usr/bin/env node' \
+            || { echo "::error::build/index.js is missing the node shebang"; exit 1; }
+
+      # The compiled entry point must load under plain Node and stop with a
+      # clear configuration error when READONLY is missing.
+      - name: Smoke test (missing READONLY)
+        run: |
+          if env -u READONLY -u TEST_PG_URL node build/index.js < /dev/null 2> err.txt; then
+            echo "::error::server started without READONLY"; exit 1
+          fi
+          cat err.txt
+          grep -q 'READONLY is required' err.txt
+
+      # The package must ship only build/, README.md, LICENSE (and package.json).
+      - name: Check package contents
+        run: |
+          npm pack --dry-run --json --ignore-scripts > pack.json
+          node -e '
+            const files = require("./pack.json")[0].files.map(f => f.path);
+            const bad = files.filter(f => !/^(build\/|README\.md$|LICENSE$|package\.json$)/.test(f));
+            if (bad.length) { console.error("::error::Unexpected files in package: " + bad.join(", ")); process.exit(1); }
+            if (!files.includes("build/index.js")) { console.error("::error::build/index.js missing"); process.exit(1); }
+            console.log(files.length + " files OK");
+          '
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build and run unit tests (target "test")
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: test
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build runtime image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: runtime
+          push: false
+          load: true
+          tags: mcp-postgres:ci
+          cache-from: type=gha
+
+      - name: Smoke test (image runs as non-root)
+        run: test "$(docker run --rm --entrypoint id mcp-postgres:ci -u)" = "1000"
+
+      - name: Smoke test (missing READONLY)
+        run: |
+          if docker run --rm -i mcp-postgres:ci < /dev/null 2> err.txt; then
+            echo "::error::server started without READONLY"; exit 1
+          fi
+          cat err.txt
+          grep -q 'READONLY is required' err.txt
