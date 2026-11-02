@@ -18,7 +18,7 @@ export async function sqlExecute(args: unknown): Promise<ToolResponse> {
       rowCount: result.rowCount,
       fields: result.fields,
       duration: `${result.duration}ms`,
-      truncated: result.rowCount > maxRows,
+      truncated: result.truncated ?? false,
     });
   } catch (error) {
     return formatError(error);

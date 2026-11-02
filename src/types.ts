@@ -11,9 +11,12 @@ export interface FieldInfo {
  */
 export interface QueryResult<T = Record<string, unknown>> {
   rows: T[];
+  /** Number of rows returned (after the maxRows limit) */
   rowCount: number;
   fields: FieldInfo[];
   duration: number;
+  /** True when the query produced more rows than the limit */
+  truncated?: boolean;
 }
 
 /**

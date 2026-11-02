@@ -9,9 +9,7 @@ import { schemaDescribeTable } from '../../../src/tools/schema-describe-table.js
 import { schemaListColumns } from '../../../src/tools/schema-list-columns.js';
 import { getPool } from '../../../src/db/connection.js';
 
-function createMockPool() {
-  return { query: vi.fn() };
-}
+import { createProgrammablePool as createMockPool } from '../../mocks/pg-pool.js';
 
 describe('schemaListTables', () => {
   beforeEach(() => {

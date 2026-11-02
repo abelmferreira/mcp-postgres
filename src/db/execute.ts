@@ -1,3 +1,5 @@
+import Cursor from 'pg-cursor';
+import type { FieldDef, PoolClient } from 'pg';
 import { getPool } from './connection.js';
 import { config } from '../config.js';
 import { logger } from '../utils/logger.js';
@@ -46,12 +48,77 @@ function compileQuery(
 }
 
 /**
+ * READ ONLY transaction used for every query in READONLY mode.
+ *
+ * `SELECT 1` right after BEGIN takes the transaction snapshot. PostgreSQL only
+ * accepts `SET transaction_read_only = off` (or set_config(...)) BEFORE the
+ * first snapshot, so after this nothing in the user query can turn the
+ * transaction back into read-write. The transaction always ends in ROLLBACK,
+ * which also reverts any session setting changed inside it.
+ */
+const BEGIN_READ_ONLY = 'BEGIN TRANSACTION READ ONLY';
+const TAKE_SNAPSHOT = 'SELECT 1';
+
+interface LimitedRows {
+  rows: Record<string, unknown>[];
+  fields: FieldDef[];
+  truncated: boolean;
+}
+
+/**
+ * Run a single statement through a server-side portal and fetch at most
+ * `limit + 1` rows. The extra row only tells whether there is more data;
+ * the server never produces the rest of the result set.
+ *
+ * A portal (pg-cursor) works for SELECT, WITH and EXPLAIN alike, without
+ * rewriting the query, and always uses the extended protocol, where the
+ * server rejects multiple statements in one call.
+ */
+async function fetchLimited(
+  client: PoolClient,
+  text: string,
+  values: SqlParamValue[],
+  limit: number
+): Promise<LimitedRows> {
+  const cursor = client.query(new Cursor<Record<string, unknown>>(text, values));
+
+  const { rows, fields } = await new Promise<{
+    rows: Record<string, unknown>[];
+    fields: FieldDef[];
+  }>((resolve, reject) => {
+    cursor.read(limit + 1, (err, readRows, result) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve({ rows: readRows ?? [], fields: result?.fields ?? [] });
+    });
+  });
+
+  // Only close on success: after an error the cursor already synced with
+  // the server, and closing again would send a stray Close message.
+  await cursor.close();
+
+  const truncated = rows.length > limit;
+  return {
+    rows: truncated ? rows.slice(0, limit) : rows,
+    fields,
+    truncated,
+  };
+}
+
+/**
  * Execute a SQL query with parameters
+ *
+ * In READONLY mode the query is validated and runs inside a READ ONLY
+ * transaction on a dedicated connection. The row limit is applied on the
+ * server (see fetchLimited) and is capped by MAX_ROWS.
  *
  * @param query SQL query with @param placeholders
  * @param params Named parameters (without @)
  * @param maxRows Maximum rows to return
- * @returns Query result with rows and metadata
+ * @returns Query result with rows and metadata. `rowCount` is the number of
+ *   rows returned; `truncated` is true when the query had more rows.
  */
 export async function executeQuery(
   query: string,
@@ -68,38 +135,52 @@ export async function executeQuery(
     }
   }
 
+  const limit = Math.max(1, Math.min(Math.floor(maxRows) || 1, config.MAX_ROWS));
+
+  let client: PoolClient | undefined;
+  let inTransaction = false;
+  let discardClient = false;
+
   try {
-    const pool = await getPool();
     const { text, values } = compileQuery(query, params);
-    const result = await pool.query(text, values);
+    const pool = await getPool();
+    client = await pool.connect();
+
+    if (config.READONLY) {
+      await client.query(BEGIN_READ_ONLY);
+      inTransaction = true;
+      await client.query(TAKE_SNAPSHOT);
+    }
+
+    const { rows, fields: rawFields, truncated } = await fetchLimited(
+      client,
+      text,
+      values,
+      limit
+    );
 
     const duration = Date.now() - startTime;
 
-    // Get rows (handle multiple result sets)
-    const rows = result.rows || [];
-    const totalRows = rows.length;
-
-    // Apply maxRows limit
-    const limitedRows = rows.slice(0, maxRows);
-
-    logger.debug('Query executed', {
-      rowsReturned: limitedRows.length,
-      totalRows,
+    logger.info('Query executed', {
       duration,
+      rows: rows.length,
+      truncated,
       readonly: config.READONLY,
+      paramCount: values.length,
+      query: query.substring(0, 200),
     });
 
-    // Extract column information
-    const fields = result.fields?.map((field) => ({
+    const fields = rawFields.map((field) => ({
       name: field.name,
       type: field.dataTypeID?.toString() ?? 'unknown',
-    })) ?? [];
+    }));
 
     return {
-      rows: limitedRows,
-      rowCount: totalRows,
+      rows,
+      rowCount: rows.length,
       fields,
       duration,
+      truncated,
     };
   } catch (error) {
     const duration = Date.now() - startTime;
@@ -117,6 +198,18 @@ export async function executeQuery(
     }
 
     throw error;
+  } finally {
+    if (client) {
+      if (inTransaction) {
+        try {
+          await client.query('ROLLBACK');
+        } catch {
+          // Unknown session state: do not return it to the pool
+          discardClient = true;
+        }
+      }
+      client.release(discardClient);
+    }
   }
 }
 
@@ -148,6 +241,8 @@ export async function executeWrite(
     logger.info('Write operation executed', {
       affectedRows: result.rowCount ?? 0,
       duration,
+      paramCount: values.length,
+      query: query.substring(0, 200),
     });
 
     return {

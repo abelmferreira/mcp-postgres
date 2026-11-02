@@ -8,12 +8,7 @@ vi.mock('../../../src/db/connection.js', async () => ({
 import { executeQuery, executeScalar } from '../../../src/db/execute.js';
 import { getPool } from '../../../src/db/connection.js';
 
-// Helper to create mock pool
-function createMockPool(queryResult: { rows: unknown[]; rowCount: number; fields?: unknown[] }) {
-  return {
-    query: vi.fn().mockResolvedValue(queryResult),
-  };
-}
+import { createMockPool } from '../../mocks/pg-pool.js';
 
 describe('executeQuery', () => {
   beforeEach(() => {
@@ -63,8 +58,56 @@ describe('executeQuery', () => {
 
     const result = await executeQuery('SELECT * FROM users', {}, 3);
 
+    // the limit goes to the server: only limit + 1 rows are fetched
+    expect(mockRequest.cursorReads).toEqual([4]);
     expect(result.rows).toHaveLength(3);
-    expect(result.rowCount).toBe(5);
+    expect(result.rowCount).toBe(3);
+    expect(result.truncated).toBe(true);
+  });
+
+  it('should not flag truncated when rows fit the limit', async () => {
+    const mockRequest = createMockPool({ rows: [{ id: 1 }, { id: 2 }, { id: 3 }] });
+    vi.mocked(getPool).mockResolvedValue(mockRequest as never);
+
+    const result = await executeQuery('SELECT * FROM users', {}, 3);
+
+    expect(result.rows).toHaveLength(3);
+    expect(result.truncated).toBe(false);
+  });
+
+  it('should cap maxRows at MAX_ROWS', async () => {
+    const mockRequest = createMockPool({ rows: [] });
+    vi.mocked(getPool).mockResolvedValue(mockRequest as never);
+
+    await executeQuery('SELECT * FROM users', {}, 999999);
+
+    // MAX_ROWS=1000 in tests/setup.ts
+    expect(mockRequest.cursorReads).toEqual([1001]);
+  });
+
+  it('should run inside a READ ONLY transaction and roll back', async () => {
+    const mockRequest = createMockPool({ rows: [{ id: 1 }] });
+    vi.mocked(getPool).mockResolvedValue(mockRequest as never);
+
+    await executeQuery('SELECT * FROM users WHERE id = @id', { id: 1 });
+
+    expect(mockRequest.statements).toEqual([
+      'BEGIN TRANSACTION READ ONLY',
+      'SELECT 1',
+      'SELECT * FROM users WHERE id = $1',
+      'ROLLBACK',
+    ]);
+    expect(mockRequest.client.release).toHaveBeenCalledWith(false);
+  });
+
+  it('should roll back and release the client when the query fails', async () => {
+    const mockRequest = createMockPool(new Error('relation "nope" does not exist'));
+    vi.mocked(getPool).mockResolvedValue(mockRequest as never);
+
+    await expect(executeQuery('SELECT * FROM nope')).rejects.toThrow('does not exist');
+
+    expect(mockRequest.statements.at(-1)).toBe('ROLLBACK');
+    expect(mockRequest.client.release).toHaveBeenCalledTimes(1);
   });
 
   it('should handle empty results', async () => {
@@ -139,12 +182,10 @@ describe('executeQuery', () => {
   });
 
   it('should handle query timeout errors', async () => {
-    const mockRequest = {
-      query: vi.fn().mockRejectedValue(new Error('Request timeout')),
-    };
+    const mockRequest = createMockPool(new Error('canceling statement due to statement timeout'));
     vi.mocked(getPool).mockResolvedValue(mockRequest as never);
 
-    await expect(executeQuery('SELECT * FROM large_table')).rejects.toThrow();
+    await expect(executeQuery('SELECT * FROM large_table')).rejects.toThrow(/timed out|timeout/i);
   });
 });
 
