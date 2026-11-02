@@ -4,10 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [1.1.1] - 2026-11-02
+## [1.1.2] - 2026-11-02
 
 First release published through the pipeline (npm Trusted Publishing, Docker Hub). No
-change in behavior compared to 1.1.0.
+change in behavior compared to 1.1.0. Tag `v1.1.1` was never released: its pipeline failed
+on configuration (Docker Hub username read from the wrong place, npm trusted publisher
+without permission to publish directly).
+
+### Changed
+
+- Docker Hub login reads the username from the repository variable `DOCKERHUB_USERNAME`.
 
 ### Documentation
 

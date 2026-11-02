@@ -1,6 +1,6 @@
 {
   "name": "@abelmferreira/mcp-postgres",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "MCP server for PostgreSQL with read-only mode, built-in SSH tunnel and .env support.",
   "type": "module",
   "main": "build/index.js",
