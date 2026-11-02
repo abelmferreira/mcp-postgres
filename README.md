@@ -1,13 +1,17 @@
 # MCP PostgreSQL
 
-[![npm version](https://img.shields.io/npm/v/%40fabriciofs%2Fmcp-postgres?cacheSeconds=300)](https://www.npmjs.com/package/@fabriciofs/mcp-postgres)
-[![Build Status](https://github.com/fabriciofs/mcp-postgres/actions/workflows/test.yml/badge.svg)](https://github.com/fabriciofs/mcp-postgres/actions/workflows/test.yml)
-[![codecov](https://codecov.io/gh/fabriciofs/mcp-postgres/branch/main/graph/badge.svg)](https://codecov.io/gh/fabriciofs/mcp-postgres)
+[![npm version](https://img.shields.io/npm/v/%40abelmferreira%2Fmcp-postgres?cacheSeconds=300)](https://www.npmjs.com/package/@abelmferreira/mcp-postgres)
+[![CI](https://github.com/abelmferreira/mcp-postgres/actions/workflows/ci.yml/badge.svg)](https://github.com/abelmferreira/mcp-postgres/actions/workflows/ci.yml)
+[![Docker Image Version](https://img.shields.io/docker/v/abelmferreira/mcp-postgres?sort=semver&label=docker)](https://hub.docker.com/r/abelmferreira/mcp-postgres)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20.12-green.svg)](https://nodejs.org/)
 
 A Model Context Protocol (MCP) server for PostgreSQL integration with Claude Code. Query, monitor, and analyze your PostgreSQL databases directly from Claude.
+
+> This is a fork of [`@fabriciofs/mcp-postgres`](https://github.com/fabriciofs/mcp-postgres) (MIT) by fabriciofs.
+> It adds a database-enforced read-only mode, a built-in SSH tunnel, `ENV_FILE` support and a Docker image.
+> See [CHANGELOG.md](CHANGELOG.md) for the differences.
 
 ## Features
 
@@ -23,23 +27,31 @@ A Model Context Protocol (MCP) server for PostgreSQL integration with Claude Cod
 ### Option 1: From npm (recommended)
 
 ```bash
-npx @fabriciofs/mcp-postgres
+npx @abelmferreira/mcp-postgres
 ```
 
 ### Option 2: Global installation
 
 ```bash
-npm install -g @fabriciofs/mcp-postgres
+npm install -g @abelmferreira/mcp-postgres
 ```
 
 ### Option 3: Clone and build locally
 
 ```bash
-git clone https://github.com/fabriciofs/mcp-postgres.git
+git clone https://github.com/abelmferreira/mcp-postgres.git
 cd mcp-postgres
 npm install
 npm run build
 ```
+
+### Option 4: Docker
+
+```bash
+docker run -i --rm --env-file .env abelmferreira/mcp-postgres
+```
+
+See [Running with Docker](#running-with-docker) below.
 
 ## Configuration
 
@@ -52,7 +64,7 @@ Add to your Claude Code MCP settings (`~/.claude/settings.json` or project `.cla
   "mcpServers": {
     "postgres": {
       "command": "npx",
-      "args": ["-y", "@fabriciofs/mcp-postgres"],
+      "args": ["-y", "@abelmferreira/mcp-postgres"],
       "env": {
         "SQL_CONNECTION_URL": "postgres://user:password@localhost:5432/database",
         "READONLY": "true"
@@ -69,7 +81,7 @@ Or with individual connection parameters:
   "mcpServers": {
     "postgres": {
       "command": "npx",
-      "args": ["-y", "@fabriciofs/mcp-postgres"],
+      "args": ["-y", "@abelmferreira/mcp-postgres"],
       "env": {
         "SQL_SERVER": "localhost",
         "SQL_DATABASE": "mydb",
@@ -93,7 +105,7 @@ When `SSH_HOST` is set the server opens the tunnel itself (an in-process `ssh -L
   "mcpServers": {
     "postgres": {
       "command": "npx",
-      "args": ["-y", "@fabriciofs/mcp-postgres"],
+      "args": ["-y", "@abelmferreira/mcp-postgres"],
       "env": {
         "SQL_SERVER": "192.0.2.10",
         "SQL_PORT": "5432",
@@ -134,7 +146,7 @@ Keep the configuration in a `.env` file of your project (git-ignored) and point 
   "mcpServers": {
     "postgres": {
       "command": "npx",
-      "args": ["-y", "@fabriciofs/mcp-postgres"],
+      "args": ["-y", "@abelmferreira/mcp-postgres"],
       "env": {
         "ENV_FILE": "/path/to/project/.env"
       }
@@ -147,6 +159,54 @@ Keep the configuration in a `.env` file of your project (git-ignored) and point 
 - Variables set in the `env` block **win** over the file (same precedence as `node --env-file`), so you can share one file and override, for example, `READONLY` per client.
 - `~` is expanded; relative paths are resolved against the working directory of the server process.
 - A missing or unreadable file stops the server with an error on stderr (exit code 1). Values are never logged.
+
+### Running with Docker
+
+The image `abelmferreira/mcp-postgres` (linux/amd64 and linux/arm64) runs the same server as the npm package, as the unprivileged `node` user (uid 1000). MCP talks over stdio, so always pass `-i`; no port is published.
+
+```bash
+docker run -i --rm --env-file .env abelmferreira/mcp-postgres
+```
+
+`.mcp.json` (or Claude Code settings):
+
+```json
+{
+  "mcpServers": {
+    "postgres": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "--env-file", "/path/to/project/.env",
+        "abelmferreira/mcp-postgres"
+      ]
+    }
+  }
+}
+```
+
+- Inside the container `localhost` is the container itself. To reach a database on the host use `host.docker.internal` (add `--add-host=host.docker.internal:host-gateway` on Linux) or `--network host`.
+- `docker --env-file` does not strip quotes and has no `#` inline comments: write `KEY=value` lines without quotes. Alternatively mount the file and use `ENV_FILE`, which uses the dotenv syntax:
+
+  ```bash
+  docker run -i --rm \
+    -v /path/to/project/.env:/config/.env:ro \
+    -e ENV_FILE=/config/.env \
+    abelmferreira/mcp-postgres
+  ```
+
+- **SSH tunnel** works in the container as well. Mount the private key read-only and point `SSH_KEY_PATH` to the path inside the container:
+
+  ```bash
+  docker run -i --rm \
+    --env-file /path/to/project/.env \
+    -v ~/.ssh/mcp_tunnel_key:/run/secrets/ssh_key:ro \
+    -e SSH_KEY_PATH=/run/secrets/ssh_key \
+    abelmferreira/mcp-postgres
+  ```
+
+  The key must be readable by uid 1000. If the file is `0600` and owned by another uid, add `--user "$(id -u):$(id -g)"`.
+- The server exits when the client closes stdin or stops the container (SIGINT/SIGTERM), closing the pool and the tunnel.
 
 ### Environment Variables
 
@@ -352,8 +412,29 @@ TEST_PG_URL=postgres://user:pass@host:5432/db npm test
 
 # Run MCP Inspector
 npm run inspector
+
+# Docker: unit tests inside the build, then the runtime image
+docker build --target test .
+docker build -t mcp-postgres:local .
 ```
+
+## Publishing
+
+Releases are published by GitHub Actions when a `v*` tag is pushed. The tag must match `version` in `package.json` (e.g. `v1.1.0`), otherwise the workflows fail.
+
+1. Update `version` in `package.json` (and `package-lock.json`) and `CHANGELOG.md`, commit.
+2. `git tag v1.1.0 && git push origin v1.1.0`.
+3. `publish-npm.yml` runs the tests and publishes `@abelmferreira/mcp-postgres` to npm with
+   [Trusted Publishing](https://docs.npmjs.com/trusted-publishers) (OIDC, no npm token stored in
+   the repository) and provenance.
+4. `publish-docker.yml` builds `abelmferreira/mcp-postgres` for linux/amd64 and linux/arm64 and
+   pushes the tags `X.Y.Z`, `X.Y`, `X` and `latest` (pre-releases such as `v1.2.0-rc.1` only get
+   their own tag).
+
+The npm trusted publisher is configured on npmjs.com (package settings) with owner
+`abelmferreira`, repository `mcp-postgres` and workflow `publish-npm.yml`.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details.
+MIT License - see [LICENSE](LICENSE) file for details. Original work by fabriciofs
+([`@fabriciofs/mcp-postgres`](https://github.com/fabriciofs/mcp-postgres)); fork maintained by Abel Ferreira.
