@@ -5,7 +5,7 @@
 [![codecov](https://codecov.io/gh/fabriciofs/mcp-postgres/branch/main/graph/badge.svg)](https://codecov.io/gh/fabriciofs/mcp-postgres)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
-[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-green.svg)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20.12-green.svg)](https://nodejs.org/)
 
 A Model Context Protocol (MCP) server for PostgreSQL integration with Claude Code. Query, monitor, and analyze your PostgreSQL databases directly from Claude.
 
@@ -15,6 +15,7 @@ A Model Context Protocol (MCP) server for PostgreSQL integration with Claude Cod
 - **Schema Exploration** - Browse tables, columns, procedures, and indexes
 - **Database Monitoring** - Track active queries, blocking sessions, wait stats, and connections
 - **Performance Analysis** - Identify missing indexes, unused indexes, and fragmentation
+- **Built-in SSH tunnel** - reach a database behind a bastion host with nothing but environment variables; the host key is always pinned
 - **Write Operations** - INSERT, UPDATE, DELETE when enabled (READONLY=false)
 
 ## Installation
@@ -83,6 +84,70 @@ Or with individual connection parameters:
 }
 ```
 
+### Through an SSH tunnel (environment variables only)
+
+When `SSH_HOST` is set the server opens the tunnel itself (an in-process `ssh -L` on a random `127.0.0.1` port). No `ssh` binary, helper script or Docker is needed. `SQL_SERVER:SQL_PORT` is the database address **as seen from the SSH host**.
+
+```json
+{
+  "mcpServers": {
+    "postgres": {
+      "command": "npx",
+      "args": ["-y", "@fabriciofs/mcp-postgres"],
+      "env": {
+        "SQL_SERVER": "192.0.2.10",
+        "SQL_PORT": "5432",
+        "SQL_DATABASE": "mydb",
+        "SQL_USER": "readonly_user",
+        "SQL_PASSWORD": "password",
+        "READONLY": "true",
+        "SSH_HOST": "bastion.example.com",
+        "SSH_USER": "tunnel",
+        "SSH_KEY_PATH": "~/.ssh/mcp_tunnel_key",
+        "SSH_HOST_FINGERPRINT": "SHA256:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    }
+  }
+}
+```
+
+- `SSH_KEY_PATH` is a path on the machine running the MCP server. `~` is expanded; relative paths are resolved against the working directory chosen by the MCP client, so prefer absolute or `~/` paths.
+- Encrypted keys need `SSH_KEY_PASSPHRASE`. A dedicated key without passphrase, restricted on the server (see below), is usually simpler.
+- `SSH_HOST_FINGERPRINT` is mandatory: the host key is always verified and there is no "trust on first use". Get it with `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the server, or `ssh-keyscan bastion.example.com | ssh-keygen -lf -` (and confirm it through another channel). A comma separated list is accepted (one per host key algorithm).
+- The SSH session is opened before the first use of the pool (at startup), so a bad key, host or fingerprint fails fast with a clear message on stderr. It is re-established automatically if it drops, and closed together with the pool (SIGINT/SIGTERM).
+- **SSL through the tunnel** (`SQL_SSL=true`): TLS is negotiated end to end with PostgreSQL inside the tunnel. The pool connects to `127.0.0.1`, but the TLS `servername` (SNI) is still `SQL_SERVER` when it is a hostname, so a proxy/pooler that routes on SNI keeps working. As without the tunnel, the server certificate is **not** verified (`rejectUnauthorized: false`).
+
+**Restrict the tunnel key on the SSH server.** In `~/.ssh/authorized_keys` of the tunnel user:
+
+```
+restrict,port-forwarding,permitopen="192.0.2.10:5432",command="/usr/sbin/nologin" ssh-ed25519 AAAA... mcp-tunnel
+```
+
+`restrict` disables everything (PTY, agent/X11 forwarding, user rc), `port-forwarding` re-enables only local forwarding, and `permitopen` limits it to the database address. `restrict` alone does **not** stop the key from running commands or opening a shell, so `command="/usr/sbin/nologin"` is needed to make it useless for anything but the tunnel.
+
+### Pointing to a project `.env` file (`ENV_FILE`)
+
+Keep the configuration in a `.env` file of your project (git-ignored) and point the server at it:
+
+```json
+{
+  "mcpServers": {
+    "postgres": {
+      "command": "npx",
+      "args": ["-y", "@fabriciofs/mcp-postgres"],
+      "env": {
+        "ENV_FILE": "/path/to/project/.env"
+      }
+    }
+  }
+}
+```
+
+- The file uses the usual dotenv syntax (`KEY=value`, `# comments`, quotes) and may contain any variable from the [tables below](#environment-variables), including `SSH_*`.
+- Variables set in the `env` block **win** over the file (same precedence as `node --env-file`), so you can share one file and override, for example, `READONLY` per client.
+- `~` is expanded; relative paths are resolved against the working directory of the server process.
+- A missing or unreadable file stops the server with an error on stderr (exit code 1). Values are never logged.
+
 ### Environment Variables
 
 #### Connection (choose one method)
@@ -117,6 +182,18 @@ SQL_SSL=false              # Optional, default: false
 | `POOL_MIN` | `2` | Minimum connection pool size |
 | `POOL_MAX` | `10` | Maximum connection pool size |
 | `LOG_LEVEL` | `info` | Log level: debug, info, warn, error |
+| `ENV_FILE` | - | Path of a dotenv file to load first. Variables already in the environment win. `~` and relative paths are supported |
+
+#### SSH tunnel (optional)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `SSH_HOST` | no | - | Enables the built-in SSH tunnel. `SQL_SERVER:SQL_PORT` is then the database address as seen from the SSH host |
+| `SSH_PORT` | no | `22` | SSH port |
+| `SSH_USER` | with `SSH_HOST` | - | SSH user |
+| `SSH_KEY_PATH` | with `SSH_HOST` | - | Private key path (`~` supported) |
+| `SSH_KEY_PASSPHRASE` | no | - | Passphrase of an encrypted key |
+| `SSH_HOST_FINGERPRINT` | with `SSH_HOST` | - | Pinned host key fingerprint(s), `SHA256:...`, comma separated |
 
 ## Available Tools
 
@@ -188,6 +265,7 @@ Once configured, you can ask Claude to interact with your database:
 - Store credentials securely using environment variables
 - Use PostgreSQL roles with minimal required permissions
 - Consider network security (VPN, firewall rules) for remote connections
+- With the SSH tunnel the host key is always verified (`SSH_HOST_FINGERPRINT`), the local end listens on `127.0.0.1` only, and the key, passphrase and database password never appear in logs or error messages
 
 ### How READONLY=true is enforced
 
@@ -243,7 +321,7 @@ Parameter values are never logged; avoid putting secrets as literals in the quer
 
 ## Requirements
 
-- Node.js >= 20.0.0
+- Node.js >= 20.12.0
 - PostgreSQL 12 or later
 - Appropriate PostgreSQL permissions for the operations you want to perform
 
@@ -266,6 +344,11 @@ npm run typecheck
 # disposable database where the user can create a table; otherwise they are skipped)
 npm test
 TEST_PG_URL=postgres://user:pass@host:5432/db npm test
+
+# End-to-end test of the SSH tunnel (sshd + postgres:18-alpine in throwaway
+# containers on internal docker networks, random password, per-run keys).
+# Without the TEST_SSH_* variables that test is skipped by `npm test`.
+./scripts/e2e-ssh-tunnel.sh
 
 # Run MCP Inspector
 npm run inspector
