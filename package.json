@@ -1,7 +1,7 @@
 {
-  "name": "@fabriciofs/mcp-postgres",
-  "version": "1.0.1",
-  "description": "MCP Server for PostgreSQL integration with Claude Code - Query, Monitor, and Analyze",
+  "name": "@abelmferreira/mcp-postgres",
+  "version": "1.1.0",
+  "description": "MCP server for PostgreSQL with read-only mode, built-in SSH tunnel and .env support.",
   "type": "module",
   "main": "build/index.js",
   "bin": {
@@ -34,20 +34,29 @@
     "claude",
     "anthropic",
     "database",
-    "model-context-protocol"
+    "model-context-protocol",
+    "ssh-tunnel",
+    "readonly"
   ],
-  "author": "fabriciofs",
+  "author": "Abel Ferreira (https://github.com/abelmferreira)",
+  "contributors": [
+    "fabriciofs (original author of @fabriciofs/mcp-postgres)"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/fabriciofs/mcp-postgres.git"
+    "url": "git+https://github.com/abelmferreira/mcp-postgres.git"
   },
   "bugs": {
-    "url": "https://github.com/fabriciofs/mcp-postgres/issues"
+    "url": "https://github.com/abelmferreira/mcp-postgres/issues"
   },
-  "homepage": "https://github.com/fabriciofs/mcp-postgres#readme",
+  "homepage": "https://github.com/abelmferreira/mcp-postgres#readme",
   "engines": {
     "node": ">=20.12.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.1",

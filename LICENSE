@@ -1,6 +1,7 @@
 MIT License
 
-Copyright (c) 2024
+Copyright (c) 2024 fabriciofs (original work: @fabriciofs/mcp-postgres, https://github.com/fabriciofs/mcp-postgres)
+Copyright (c) 2026 Abel Ferreira (fork: @abelmferreira/mcp-postgres, https://github.com/abelmferreira/mcp-postgres)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
