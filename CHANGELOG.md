@@ -4,7 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [1.1.0] - unreleased
+## [1.1.1] - 2026-11-02
+
+First release published through the pipeline (npm Trusted Publishing, Docker Hub). No
+change in behavior compared to 1.1.0.
+
+### Documentation
+
+- `docs/RELEASING.md`: first manual publish, provenance and 2FA pitfalls, trusted
+  publisher setup.
+
+## [1.1.0] - 2026-11-02
 
 First release of the fork, published as `@abelmferreira/mcp-postgres`
 (npm) and `abelmferreira/mcp-postgres` (Docker Hub). Based on
