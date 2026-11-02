@@ -434,6 +434,8 @@ Releases are published by GitHub Actions when a `v*` tag is pushed. The tag must
 The npm trusted publisher is configured on npmjs.com (package settings) with owner
 `abelmferreira`, repository `mcp-postgres` and workflow `publish-npm.yml`.
 
+The first publish has to be manual and has pitfalls (provenance, 2FA bypass token); see [docs/RELEASING.md](docs/RELEASING.md).
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) file for details. Original work by fabriciofs
