@@ -112,8 +112,8 @@ SQL_SSL=false              # Optional, default: false
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `QUERY_TIMEOUT` | `30000` | Query timeout in milliseconds (max: 120000) |
-| `MAX_ROWS` | `1000` | Maximum rows to return (max: 5000) |
+| `QUERY_TIMEOUT` | `30000` | Query timeout in milliseconds (max: 120000). Sent as `statement_timeout`; `idle_in_transaction_session_timeout` is set to this value + 5s |
+| `MAX_ROWS` | `1000` | Hard cap for rows returned per query (max: 5000). A tool's `maxRows` above it is lowered to it |
 | `POOL_MIN` | `2` | Minimum connection pool size |
 | `POOL_MAX` | `10` | Maximum connection pool size |
 | `LOG_LEVEL` | `info` | Log level: debug, info, warn, error |
@@ -182,9 +182,64 @@ Once configured, you can ask Claude to interact with your database:
 ## Security Considerations
 
 - **Always use READONLY=true in production** unless write access is explicitly required
+- Even with READONLY=true, connect with a role that has only the privileges it needs
+  (ideally `SELECT` only, not a superuser and without `pg_read_server_files`,
+  `pg_write_server_files` or `pg_execute_server_program`)
 - Store credentials securely using environment variables
 - Use PostgreSQL roles with minimal required permissions
 - Consider network security (VPN, firewall rules) for remote connections
+
+### How READONLY=true is enforced
+
+READONLY is enforced in layers, so a query that slips past one of them is still stopped by the database:
+
+1. **Session default.** Every pooled connection is opened with the startup option
+   `-c default_transaction_read_only=on`. It is applied by the server before any query
+   runs (no race with a `SET` issued after connecting) and also covers queries that do not
+   go through `sql_execute`.
+   PgBouncer in transaction/statement mode rejects the `options` startup parameter unless
+   it is in `ignore_startup_parameters`; layer 2 does not depend on it.
+2. **READ ONLY transaction per query.** Each query runs on a dedicated connection as
+   `BEGIN TRANSACTION READ ONLY` → `SELECT 1` → *query* → `ROLLBACK`. The `SELECT 1` takes the
+   transaction snapshot: PostgreSQL only accepts `SET transaction_read_only = off` (or
+   `set_config(...)`) before the first snapshot, so the user query can no longer turn the
+   transaction read-write. The final `ROLLBACK` also reverts any session setting changed
+   inside it (e.g. `set_config('default_transaction_read_only', 'off', false)`).
+3. **Single statement.** The query is sent with the extended protocol (server-side portal),
+   where PostgreSQL rejects more than one statement per call.
+4. **Query validator** (first, cheapest filter, with clearer errors). It understands
+   comments, standard/`E''`/dollar-quoted strings and quoted identifiers, and rejects:
+   - queries that do not start with `SELECT`, `WITH` or `EXPLAIN`;
+   - more than one statement (a trailing `;` is fine);
+   - write/DDL keywords in the query code (`INSERT`, `UPDATE`, `DELETE`, `CREATE`, `DROP`,
+     `ALTER`, `TRUNCATE`, `COPY`, `MERGE`, `GRANT`, `REVOKE`, ...), including data-modifying CTEs;
+   - `SELECT ... INTO` and row-locking clauses (`FOR UPDATE/SHARE/NO KEY UPDATE/KEY SHARE`);
+   - dangerous functions, even when written inside a string literal: server file access
+     (`pg_read_file`, `pg_read_binary_file`, `pg_stat_file`, `pg_ls_*`, adminpack `pg_file_*`),
+     large-object import/export/writes (`lo_import`, `lo_export`, `lo_unlink`, ...), `dblink*`
+     (opens a new connection outside the read-only transaction), `set_config`,
+     `pg_reload_conf`, `pg_terminate_backend`/`pg_cancel_backend`, replication/backup control,
+     `pg_notify`, advisory locks (session locks survive `ROLLBACK`), `nextval`/`setval`.
+   - unterminated strings, quoted identifiers or comments.
+
+   Not blocked by the validator (left to the database layers above or to role privileges):
+   `EXPLAIN ANALYZE SELECT ...` (it executes the query, but inside the READ ONLY transaction),
+   `pg_sleep` (bounded by `statement_timeout`), functions that run SQL given as text such as
+   `query_to_xml` (they run inside the same READ ONLY transaction), user-defined functions
+   that write (rejected by the database), and `U&"..."` Unicode-escaped identifiers.
+
+### Row limit
+
+The row limit is applied on the server: the query runs through a portal and only
+`maxRows + 1` rows are fetched (works for `SELECT`, `WITH` and `EXPLAIN` without rewriting
+the query). The extra row only tells whether there is more data: results report
+`truncated: true` in that case, and `rowCount` is the number of rows returned.
+
+### Query log
+
+Every executed query is logged at `info` level (stderr) with its duration, number of rows
+returned, `truncated`, number of parameters and the first 200 characters of the query text.
+Parameter values are never logged; avoid putting secrets as literals in the query text.
 
 ## Requirements
 
@@ -206,6 +261,11 @@ npm run dev
 
 # Type check
 npm run typecheck
+
+# Tests (the real-PostgreSQL READONLY tests run only when TEST_PG_URL points to a
+# disposable database where the user can create a table; otherwise they are skipped)
+npm test
+TEST_PG_URL=postgres://user:pass@host:5432/db npm test
 
 # Run MCP Inspector
 npm run inspector
