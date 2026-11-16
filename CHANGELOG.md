@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- `monitor_wait_stats` failed with `column "totalwaittimems" does not exist`: the `ORDER BY`
+  alias was unquoted (folded to lower case), and the `percentTotal` window sum referenced
+  `query_start` outside the `GROUP BY`. Now orders by `"totalWaitTimeMs"` and sums the
+  per-group `MAX`.
+- `analyze_statistics` failed with `function round(double precision, integer) does not exist`
+  (`pg_class.reltuples` is `real`); the percentage is cast to `numeric`. Tables never analyzed
+  (`reltuples = -1` on PostgreSQL 14+) no longer report negative percentages and are listed
+  as `STALE - Never analyzed`.
+
 ## [1.1.2] - 2026-11-02
 
 First release published through the pipeline (npm Trusted Publishing, Docker Hub). No

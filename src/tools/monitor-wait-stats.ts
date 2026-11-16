@@ -28,10 +28,10 @@ export async function monitorWaitStats(args: unknown): Promise<ToolResponse> {
         EXTRACT(EPOCH FROM MAX(now() - query_start)) * 1000 AS "maxWaitTimeMs",
         NULL::numeric AS "signalWaitTimeMs",
         EXTRACT(EPOCH FROM MAX(now() - query_start)) * 1000 AS "resourceWaitTimeMs",
-        CASE WHEN SUM(EXTRACT(EPOCH FROM (now() - query_start)) * 1000) OVER() = 0 THEN 0
+        CASE WHEN SUM(EXTRACT(EPOCH FROM MAX(now() - query_start)) * 1000) OVER() = 0 THEN 0
           ELSE ROUND(
             100.0 * (EXTRACT(EPOCH FROM MAX(now() - query_start)) * 1000)
-            / SUM(EXTRACT(EPOCH FROM (now() - query_start)) * 1000) OVER(),
+            / SUM(EXTRACT(EPOCH FROM MAX(now() - query_start)) * 1000) OVER(),
             2
           )
         END AS "percentTotal"
@@ -45,7 +45,7 @@ export async function monitorWaitStats(args: unknown): Promise<ToolResponse> {
 
     query += `
       GROUP BY wait_event
-      ORDER BY totalWaitTimeMs DESC
+      ORDER BY "totalWaitTimeMs" DESC NULLS LAST
       LIMIT @top
     `;
 

@@ -24,10 +24,11 @@ export async function analyzeStatistics(args: unknown): Promise<ToolResponse> {
         ps.last_analyze AS "lastUpdated",
         c.reltuples::bigint AS "totalRows",
         ps.n_mod_since_analyze AS "modificationCounter",
-        CASE WHEN c.reltuples = 0 THEN 0
-          ELSE ROUND(100.0 * ps.n_mod_since_analyze / c.reltuples, 2)
+        CASE WHEN c.reltuples <= 0 THEN 0
+          ELSE ROUND((100.0 * ps.n_mod_since_analyze / c.reltuples)::numeric, 2)
         END AS "percentModified",
         CASE
+          WHEN c.reltuples < 0 THEN 'STALE - Never analyzed'
           WHEN c.reltuples = 0 THEN 'EMPTY TABLE'
           WHEN ps.n_mod_since_analyze IS NULL THEN 'UNKNOWN'
           WHEN (100.0 * ps.n_mod_since_analyze / c.reltuples) > @minRowsChanged THEN 'STALE - Analyze recommended'
@@ -55,12 +56,13 @@ export async function analyzeStatistics(args: unknown): Promise<ToolResponse> {
     }
 
     if (minRowsChanged > 0) {
-      query += ` AND (c.reltuples = 0 OR (100.0 * ps.n_mod_since_analyze / c.reltuples) >= @minRowsChanged)`;
+      query += ` AND (c.reltuples <= 0 OR (100.0 * ps.n_mod_since_analyze / c.reltuples) >= @minRowsChanged)`;
     }
 
     query += `
       ORDER BY
         CASE
+          WHEN c.reltuples < 0 THEN 100
           WHEN c.reltuples = 0 THEN 0
           ELSE 100.0 * ps.n_mod_since_analyze / c.reltuples
         END DESC,
